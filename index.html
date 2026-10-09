@@ -1,0 +1,641 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Speed Reader">
+<meta name="theme-color" content="#0f1013">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<title>Speed Reader</title>
+<style>
+  :root {
+    --bg: #0f1013; --card: #1a1c21; --line: #2c2f36; --text: #ececef; --muted: #8b8f99;
+    --accent: #e5484d; --btn: #24272e; color-scheme: dark;
+  }
+  @media (prefers-color-scheme: light) {
+    :root { --bg: #f4f3ef; --card: #ffffff; --line: #dedcd5; --text: #16171a; --muted: #6c6f76;
+      --accent: #d93036; --btn: #e7e5df; color-scheme: light; }
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; background: var(--bg); color: var(--text);
+    font: 16px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    -webkit-text-size-adjust: 100%; overscroll-behavior: none; }
+  button, label.btn { font: inherit; color: inherit; background: none; border: 0; cursor: pointer;
+    touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
+
+  .screen { position: fixed; inset: 0; display: flex; flex-direction: column;
+    padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }
+  .screen[hidden] { display: none; }
+  .bar { display: flex; align-items: center; gap: 8px; min-height: 48px; padding: 0 16px; }
+  .bar h1 { font-size: 30px; font-weight: 700; padding-top: 10px; }
+  .back { color: var(--accent); font-size: 17px; padding: 10px 0; }
+  .content { flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 8px 16px 24px; }
+  .list { list-style: none; display: flex; flex-direction: column; gap: 8px; }
+  .row { display: flex; align-items: center; gap: 12px; background: var(--card); border-radius: 12px;
+    padding: 14px 16px; cursor: pointer; }
+  .row-main { flex: 1; min-width: 0; }
+  .row-title { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .row-sub { color: var(--muted); font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .row-pct { color: var(--muted); font-size: 14px; font-variant-numeric: tabular-nums; }
+  .chap-row { font-size: 15px; }
+  .chap-row.current { box-shadow: inset 3px 0 0 var(--accent); font-weight: 600; }
+  .muted { color: var(--muted); text-align: center; padding: 48px 16px; }
+  .bottom { padding: 12px 16px 16px; }
+  .btn { display: block; width: 100%; text-align: center; padding: 14px; border-radius: 12px;
+    background: var(--btn); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .btn.primary { background: var(--accent); color: #fff; }
+  .btn.danger { background: none; color: var(--accent); font-weight: 500; margin-top: 16px; }
+  .book-head { padding: 4px 0 16px; }
+  .book-head h2 { font-size: 24px; line-height: 1.2; }
+  .book-head p { color: var(--muted); margin-top: 4px; }
+  .section-label { color: var(--muted); font-size: 13px; text-transform: uppercase; letter-spacing: .06em; margin: 20px 4px 8px; }
+
+  /* Player */
+  .stage { flex: 1; min-height: 180px; margin: 4px 16px 0; background: var(--card); border-radius: 20px;
+    position: relative; overflow: hidden; display: flex; align-items: center; justify-content: center;
+    user-select: none; -webkit-user-select: none; cursor: pointer; }
+  .word { display: grid; grid-template-columns: minmax(0, 38fr) auto minmax(0, 62fr); width: 100%;
+    font-size: 40px; font-weight: 500; white-space: nowrap; line-height: 1.2; }
+  .word span { overflow: hidden; }
+  .word .l { text-align: right; }
+  .word .pv { color: var(--accent); position: relative; overflow: visible; }
+  .word .pv::before, .word .pv::after { content: ""; position: absolute; left: 50%; width: 2px; height: .3em;
+    margin-left: -1px; background: var(--accent); opacity: .45; }
+  .word .pv::before { top: -.5em; }
+  .word .pv::after { bottom: -.5em; }
+  .context { position: absolute; inset: 0; overflow-y: auto; -webkit-overflow-scrolling: touch;
+    padding: 20px 20px 44px; font-size: 18px; line-height: 1.65; }
+  .context p { margin-bottom: 14px; }
+  .context p.dim { opacity: .4; }
+  .context span.cur { background: var(--accent); color: #fff; border-radius: 4px; padding: 1px 3px; }
+  .hint { position: absolute; left: 0; right: 0; bottom: 0; padding: 10px; text-align: center; font-size: 12px;
+    color: var(--muted); background: linear-gradient(transparent, var(--card) 40%); pointer-events: none; }
+  #player.playing .context, #player.playing .hint { display: none; }
+  #player:not(.playing) .word { display: none; }
+
+  .meta { text-align: center; padding: 14px 24px 4px; }
+  .meta div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #chapTitle { font-weight: 650; font-size: 17px; }
+  #bookTitle { color: var(--muted); font-size: 14px; }
+  .scrubwrap { padding: 4px 16px 0; }
+  .scrub { -webkit-appearance: none; appearance: none; width: 100%; height: 28px; background: transparent; display: block; }
+  .scrub::-webkit-slider-runnable-track { height: 4px; border-radius: 2px;
+    background: linear-gradient(var(--text), var(--text)) 0 / var(--p, 0%) 100% no-repeat, var(--line); }
+  .scrub::-webkit-slider-thumb { -webkit-appearance: none; width: 14px; height: 14px; border-radius: 50%;
+    background: var(--text); margin-top: -5px; }
+  .scrub::-moz-range-track { height: 4px; border-radius: 2px; background: var(--line); }
+  .scrub::-moz-range-progress { height: 4px; border-radius: 2px; background: var(--text); }
+  .times { display: flex; justify-content: space-between; font-size: 12px; color: var(--muted);
+    font-variant-numeric: tabular-nums; margin-top: -4px; }
+  .controls { display: flex; justify-content: space-around; align-items: center; padding: 8px 8px 0; }
+  .ctl { display: flex; flex-direction: column; align-items: center; gap: 2px; width: 60px; padding: 6px 0; }
+  .ctl svg { width: 30px; height: 30px; fill: currentColor; }
+  .ctl small { font-size: 10px; color: var(--muted); }
+  .play { width: 72px; height: 72px; border-radius: 50%; background: var(--text); color: var(--bg);
+    display: flex; align-items: center; justify-content: center; }
+  .play svg { width: 36px; height: 36px; fill: currentColor; }
+  .play .i-pause, #player.playing .play .i-play { display: none; }
+  #player.playing .play .i-pause { display: block; }
+  .speed { display: flex; justify-content: center; align-items: center; gap: 28px; padding: 10px 0 12px; }
+  .speed button { width: 44px; height: 44px; border-radius: 50%; background: var(--btn); font-size: 24px; line-height: 1; }
+  .speed div { min-width: 92px; text-align: center; color: var(--muted); font-size: 14px; }
+  .speed b { color: var(--text); font-size: 22px; font-variant-numeric: tabular-nums; }
+
+  #toast { position: fixed; left: 50%; bottom: calc(24px + env(safe-area-inset-bottom)); transform: translateX(-50%);
+    max-width: calc(100% - 32px); background: var(--text); color: var(--bg); padding: 10px 16px; border-radius: 10px;
+    font-size: 14px; opacity: 0; transition: opacity .2s; pointer-events: none; z-index: 10; }
+  #toast.show { opacity: 1; }
+</style>
+</head>
+<body>
+
+<section id="library" class="screen">
+  <header class="bar"><h1>Library</h1></header>
+  <div class="content">
+    <ul id="bookList" class="list"></ul>
+    <p id="emptyMsg" class="muted">No books yet.<br>Tap <b>Add books</b> to import EPUB files from your Files app.</p>
+  </div>
+  <footer class="bottom">
+    <label class="btn primary">Add books<input id="fileInput" type="file" multiple hidden></label>
+  </footer>
+</section>
+
+<section id="toc" class="screen" hidden>
+  <header class="bar"><button class="back" data-go="library">‹ Library</button></header>
+  <div class="content">
+    <div class="book-head"><h2 id="tocTitle"></h2><p id="tocAuthor"></p></div>
+    <button id="continueBtn" class="btn primary"></button>
+    <div class="section-label">Contents</div>
+    <ul id="chapterList" class="list"></ul>
+    <button id="removeBtn" class="btn danger">Remove book from this device</button>
+  </div>
+</section>
+
+<section id="player" class="screen" hidden>
+  <header class="bar"><button class="back" id="playerBack">‹ Contents</button></header>
+  <div class="stage" id="stage">
+    <div class="word" id="word"><span class="l"></span><span class="pv"></span><span class="r"></span></div>
+    <div class="context" id="context"></div>
+    <div class="hint">Tap a word to start there · tap ▶ to read</div>
+  </div>
+  <div class="meta"><div id="chapTitle"></div><div id="bookTitle"></div></div>
+  <div class="scrubwrap">
+    <input type="range" class="scrub" id="scrub" min="0" max="1" value="0" aria-label="Position in chapter">
+    <div class="times"><span id="tElapsed">0:00</span><span id="tLeft">-0:00</span></div>
+  </div>
+  <div class="controls">
+    <button class="ctl" id="prevSent" aria-label="Back to start of sentence">
+      <svg viewBox="0 0 24 24"><path d="M6 6h2v12H6zM9.5 12L18 6v12z"/></svg><small>sentence</small></button>
+    <button class="ctl" id="back10" aria-label="Back 10 words">
+      <svg viewBox="0 0 24 24"><path d="M12 5V2L7 6l5 4V7a6 6 0 1 1-6 6H4a8 8 0 1 0 8-8z"/><text x="12" y="15.6" font-size="6.5" font-weight="700" text-anchor="middle" font-family="-apple-system,sans-serif">10</text></svg><small>10 words</small></button>
+    <button class="play" id="playBtn" aria-label="Play or pause">
+      <svg class="i-play" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+      <svg class="i-pause" viewBox="0 0 24 24"><path d="M6 5h4v14H6zM14 5h4v14h-4z"/></svg></button>
+    <button class="ctl" id="fwd10" aria-label="Forward 10 words">
+      <svg viewBox="0 0 24 24"><path transform="matrix(-1 0 0 1 24 0)" d="M12 5V2L7 6l5 4V7a6 6 0 1 1-6 6H4a8 8 0 1 0 8-8z"/><text x="12" y="15.6" font-size="6.5" font-weight="700" text-anchor="middle" font-family="-apple-system,sans-serif">10</text></svg><small>10 words</small></button>
+    <button class="ctl" id="nextSent" aria-label="Skip to next sentence">
+      <svg viewBox="0 0 24 24"><path d="M16 6h2v12h-2zM6 6l8.5 6L6 18z"/></svg><small>sentence</small></button>
+  </div>
+  <div class="speed">
+    <button id="slower" aria-label="Slower">−</button>
+    <div><b id="wpm">300</b><br>words / min</div>
+    <button id="faster" aria-label="Faster">+</button>
+  </div>
+</section>
+
+<div id="toast"></div>
+
+<script>
+'use strict';
+const $ = s => document.querySelector(s);
+
+/* ---------- storage ---------- */
+const store = {
+  get(k, d) { try { const v = localStorage.getItem('sr.' + k); return v == null ? d : JSON.parse(v); } catch { return d; } },
+  set(k, v) { try { localStorage.setItem('sr.' + k, JSON.stringify(v)); } catch {} },
+  del(k) { try { localStorage.removeItem('sr.' + k); } catch {} },
+};
+const dbp = new Promise((res, rej) => {
+  const r = indexedDB.open('speed-reader', 1);
+  r.onupgradeneeded = () => r.result.createObjectStore('books', { keyPath: 'id' });
+  r.onsuccess = () => res(r.result);
+  r.onerror = () => rej(r.error);
+});
+function idb(mode, fn) {
+  return dbp.then(d => new Promise((res, rej) => {
+    const t = d.transaction('books', mode);
+    const req = fn(t.objectStore('books'));
+    t.oncomplete = () => res(req && req.result);
+    t.onerror = t.onabort = () => rej(t.error);
+  }));
+}
+
+/* ---------- zip (EPUB container) ---------- */
+async function openZip(file) {
+  const buf = await file.arrayBuffer(), dv = new DataView(buf), u8 = new Uint8Array(buf);
+  let e = buf.byteLength - 22;
+  const stop = Math.max(0, e - 65557);
+  while (e >= stop && dv.getUint32(e, true) !== 0x06054b50) e--;
+  if (e < stop) throw new Error('Not a valid EPUB file.');
+  const count = dv.getUint16(e + 10, true);
+  let p = dv.getUint32(e + 16, true);
+  const entries = new Map(), dec = new TextDecoder();
+  for (let i = 0; i < count && dv.getUint32(p, true) === 0x02014b50; i++) {
+    const nl = dv.getUint16(p + 28, true), xl = dv.getUint16(p + 30, true), cl = dv.getUint16(p + 32, true);
+    entries.set(dec.decode(u8.subarray(p + 46, p + 46 + nl)),
+      { method: dv.getUint16(p + 10, true), size: dv.getUint32(p + 20, true), off: dv.getUint32(p + 42, true) });
+    p += 46 + nl + xl + cl;
+  }
+  const lower = new Map([...entries.keys()].map(k => [k.toLowerCase(), k]));
+  async function bytes(name) {
+    const en = entries.get(name) || entries.get(lower.get(name.toLowerCase()));
+    if (!en) return null;
+    const s = en.off + 30 + dv.getUint16(en.off + 26, true) + dv.getUint16(en.off + 28, true);
+    const data = u8.subarray(s, s + en.size);
+    if (en.method === 0) return data;
+    if (en.method !== 8) throw new Error('Unsupported compression in EPUB.');
+    const stream = new Blob([data]).stream().pipeThrough(new DecompressionStream('deflate-raw'));
+    return new Uint8Array(await new Response(stream).arrayBuffer());
+  }
+  return { async text(n) { const b = n && await bytes(n); return b ? new TextDecoder().decode(b) : null; } };
+}
+
+/* ---------- EPUB parsing ---------- */
+const parseXml = s => new DOMParser().parseFromString(s, 'application/xml');
+function parseDoc(s) {
+  let d = new DOMParser().parseFromString(s, 'application/xhtml+xml');
+  if (d.getElementsByTagName('parsererror').length) d = new DOMParser().parseFromString(s, 'text/html');
+  return d;
+}
+const tags = (node, t) => [...node.getElementsByTagNameNS('*', t)];
+function resolve(base, href) {
+  const u = new URL(href, 'https://x/' + base);
+  return decodeURIComponent(u.pathname.slice(1)) + (u.hash ? '#' + decodeURIComponent(u.hash.slice(1)) : '');
+}
+const epubType = el => el.getAttribute('epub:type') || el.getAttributeNS('http://www.idpf.org/2007/ops', 'type') || '';
+const clean = s => (s || '').replace(/\s+/g, ' ').trim();
+
+const BLOCK = new Set(('address article aside blockquote body dd div dl dt figcaption figure footer h1 h2 h3 h4 h5 h6 ' +
+  'header hr li main nav ol p pre section table tbody td tfoot th thead tr ul').split(' '));
+const SKIP = new Set(['script', 'style', 'head', 'rt', 'rp', 'svg', 'math']);
+
+// Walks the body, turning block elements into paragraphs. Reports element ids so TOC links can find them.
+function extract(root, paras, onAnchor) {
+  let buf = '';
+  const flush = () => { const t = clean(buf); if (t) paras.push(t); buf = ''; };
+  (function walk(node) {
+    for (const c of node.childNodes) {
+      if (c.nodeType === 3) { buf += c.nodeValue; continue; }
+      if (c.nodeType !== 1) continue;
+      const tag = c.localName.toLowerCase();
+      if (SKIP.has(tag)) continue;
+      if (tag === 'br') { buf += ' '; continue; }
+      if (/noteref|pagebreak/.test(epubType(c)) || (tag === 'sup' && c.querySelector('a'))) continue;
+      const block = BLOCK.has(tag);
+      if (block) flush();
+      const id = c.getAttribute('id');
+      if (id) onAnchor(id);
+      walk(c);
+      if (block) flush();
+    }
+  })(root);
+  flush();
+}
+
+async function parseEpub(file) {
+  const zip = await openZip(file);
+  const container = await zip.text('META-INF/container.xml');
+  if (!container) throw new Error('Not an EPUB (no container.xml).');
+  const opfPath = tags(parseXml(container), 'rootfile')[0]?.getAttribute('full-path');
+  const opfText = await zip.text(opfPath);
+  if (!opfText) throw new Error('EPUB is missing its package file.');
+  const opf = parseXml(opfText);
+  const DC = 'http://purl.org/dc/elements/1.1/';
+  const title = clean(opf.getElementsByTagNameNS(DC, 'title')[0]?.textContent) || file.name.replace(/\.epub$/i, '');
+  const author = clean(opf.getElementsByTagNameNS(DC, 'creator')[0]?.textContent);
+
+  const items = new Map();
+  for (const it of tags(opf, 'item')) items.set(it.getAttribute('id'), {
+    href: resolve(opfPath, it.getAttribute('href')), type: it.getAttribute('media-type') || '', props: it.getAttribute('properties') || '' });
+  const spineEl = tags(opf, 'spine')[0];
+  const spine = tags(opf, 'itemref').filter(r => r.getAttribute('linear') !== 'no')
+    .map(r => items.get(r.getAttribute('idref'))).filter(Boolean).map(i => i.href);
+
+  const enc = await zip.text('META-INF/encryption.xml');
+  if (enc) {
+    const locked = new Set(tags(parseXml(enc), 'CipherReference').map(c => resolve('', c.getAttribute('URI') || '')));
+    if (spine.some(h => locked.has(h))) throw new Error('This book is DRM-protected and can’t be opened.');
+  }
+
+  const paras = [], fileStart = {}, anchors = {}, fileTitles = [];
+  for (const href of spine) {
+    const src = await zip.text(href);
+    if (src == null) continue;
+    const doc = parseDoc(src);
+    const body = doc.body || tags(doc, 'body')[0];
+    if (!body) continue;
+    const start = paras.length;
+    fileStart[href] = start;
+    extract(body, paras, id => { anchors[href + '#' + id] = paras.length; });
+    if (paras.length > start) fileTitles.push({ title: clean(body.querySelector('h1,h2,h3')?.textContent), p: start });
+  }
+  if (!paras.length) throw new Error('No readable text found in this book.');
+
+  const toc = [];
+  const navItem = [...items.values()].find(i => /\bnav\b/.test(i.props));
+  if (navItem) {
+    const nd = parseDoc(await zip.text(navItem.href) || '<html/>');
+    const navs = tags(nd, 'nav');
+    const nav = navs.find(n => /\btoc\b/.test(epubType(n))) || navs[0];
+    if (nav) for (const a of tags(nav, 'a')) {
+      const h = a.getAttribute('href');
+      if (!h) continue;
+      let depth = 0;
+      for (let el = a.parentElement; el && el !== nav; el = el.parentElement) if (el.localName === 'ol' || el.localName === 'ul') depth++;
+      toc.push({ title: clean(a.textContent), href: resolve(navItem.href, h), depth: depth - 1 });
+    }
+  }
+  if (!toc.length) {
+    const ncxId = spineEl?.getAttribute('toc');
+    const ncx = (ncxId && items.get(ncxId)) || [...items.values()].find(i => i.type === 'application/x-dtbncx+xml');
+    const ncxText = ncx && await zip.text(ncx.href);
+    if (ncxText) for (const np of tags(parseXml(ncxText), 'navPoint')) {
+      const src = tags(np, 'content')[0]?.getAttribute('src');
+      if (!src) continue;
+      let depth = 0;
+      for (let el = np.parentElement; el; el = el.parentElement) if (el.localName === 'navPoint') depth++;
+      toc.push({ title: clean(tags(np, 'text')[0]?.textContent), href: resolve(ncx.href, src), depth });
+    }
+  }
+
+  let chapters = toc.map(t => {
+    const [f, frag] = t.href.split('#');
+    const p = frag != null && anchors[f + '#' + frag] != null ? anchors[f + '#' + frag] : fileStart[f];
+    return p == null ? null : { title: t.title || 'Untitled', depth: Math.max(0, t.depth), p: Math.min(p, paras.length - 1) };
+  }).filter(Boolean);
+  if (!chapters.length) chapters = fileTitles.map((f, i) => ({ title: f.title || `Section ${i + 1}`, depth: 0, p: f.p }));
+
+  return { id: `${title}|${author}|${paras.length}`, title, author, paragraphs: paras, chapters };
+}
+
+/* ---------- timing ---------- */
+const SENT_END = /[.!?…]['"”’)\]]*$/;
+const SOFT_PAUSE = /[,;:—–]['"”’)\]]*$/;
+// How many "word slots" each word gets. 1 = one beat at the chosen words-per-minute.
+function multFor(w, sentenceEnd, paraEnd) {
+  const len = w.replace(/[^\p{L}\p{N}]/gu, '').length;
+  let m = len >= 12 ? 1.6 : len >= 8 ? 1.3 : 1;
+  if (sentenceEnd) m += 1;
+  else if (SOFT_PAUSE.test(w)) m += 0.5;
+  if (paraEnd) m = Math.max(m, 2.5);
+  return m;
+}
+
+// Prepares a stored book for reading: word list, per-word timing, and chapter boundaries.
+function prepare(book) {
+  const words = [], paraStart = [], paraOf = [], mult = [], ends = [];
+  book.paragraphs.forEach((p, pi) => {
+    const ws = p.replace(/([—–])(?=\S)/g, '$1 ').split(' ').filter(Boolean);
+    paraStart.push(words.length);
+    ws.forEach((w, k) => {
+      const last = k === ws.length - 1, sEnd = SENT_END.test(w);
+      words.push(w); paraOf.push(pi); mult.push(multFor(w, sEnd, last)); ends.push(sEnd || last ? 1 : 0);
+    });
+  });
+  const prefix = new Float64Array(words.length + 1);
+  for (let i = 0; i < words.length; i++) prefix[i + 1] = prefix[i] + mult[i];
+  const chapters = book.chapters.map(c => ({ ...c, w: paraStart[c.p] ?? 0 }));
+  const bounds = [];
+  [...chapters].sort((a, b) => a.w - b.w).forEach(c => {
+    if (bounds.length && bounds[bounds.length - 1].w === c.w) bounds[bounds.length - 1] = c; else bounds.push(c);
+  });
+  if (!bounds.length || bounds[0].w > 0) bounds.unshift({ title: book.title, w: 0 });
+  return { ...book, words, paraStart, paraOf: Int32Array.from(paraOf), mult: Float32Array.from(mult),
+    ends: Uint8Array.from(ends), prefix, chapters, bounds };
+}
+
+// Splits a word around its focus letter (slightly left of center) so the eye never has to move.
+function splitWord(w) {
+  const m = w.match(/[\p{L}\p{N}]/u);
+  const start = m ? m.index : 0;
+  const len = w.slice(start).replace(/[^\p{L}\p{N}]+$/u, '').length;
+  const k = start + (len <= 1 ? 0 : len <= 5 ? 1 : len <= 9 ? 2 : len <= 13 ? 3 : 4);
+  return [w.slice(0, k), w.charAt(k), w.slice(k + 1)];
+}
+
+/* ---------- app state ---------- */
+const S = { book: null, pos: 0, playing: false, timer: 0, ramp: 0, wpm: store.get('wpm', 300), lock: null, ci: -1 };
+const MIN_WPM = 100, MAX_WPM = 1000, STEP_WPM = 50;
+const wordEl = $('#word'), [wl, wc, wr] = wordEl.children, scrub = $('#scrub');
+
+function go(id) { for (const s of document.querySelectorAll('.screen')) s.hidden = s.id !== id; }
+let toastTimer;
+function toast(msg, sticky) {
+  const t = $('#toast');
+  t.textContent = msg; t.classList.add('show');
+  clearTimeout(toastTimer);
+  if (!sticky) toastTimer = setTimeout(() => t.classList.remove('show'), 3000);
+}
+const savePos = () => S.book && store.set('pos.' + S.book.id, S.pos);
+function fmt(sec) {
+  sec = Math.round(sec);
+  const h = Math.floor(sec / 3600), m = Math.floor(sec / 60) % 60, s = String(sec % 60).padStart(2, '0');
+  return h ? `${h}:${String(m).padStart(2, '0')}:${s}` : `${m}:${s}`;
+}
+function chapterAt(i) {
+  const b = S.book.bounds;
+  let ci = 0;
+  while (ci + 1 < b.length && b[ci + 1].w <= i) ci++;
+  return ci;
+}
+
+/* ---------- library ---------- */
+function renderLibrary() {
+  const lib = store.get('library', []), ul = $('#bookList');
+  ul.innerHTML = '';
+  $('#emptyMsg').hidden = lib.length > 0;
+  for (const b of lib) {
+    const pct = b.words ? Math.floor(store.get('pos.' + b.id, 0) / b.words * 100) : 0;
+    const li = document.createElement('li');
+    li.className = 'row';
+    li.innerHTML = '<div class="row-main"><div class="row-title"></div><div class="row-sub"></div></div><div class="row-pct"></div>';
+    li.querySelector('.row-title').textContent = b.title;
+    li.querySelector('.row-sub').textContent = b.author || `${b.words.toLocaleString()} words`;
+    li.querySelector('.row-pct').textContent = pct + '%';
+    li.onclick = () => openBook(b.id);
+    ul.append(li);
+  }
+}
+
+$('#fileInput').onchange = async e => {
+  const files = [...e.target.files];
+  e.target.value = '';
+  for (const f of files) {
+    toast(`Importing ${f.name}…`, true);
+    try {
+      const book = await parseEpub(f);
+      const n = prepare(book).words.length;
+      await idb('readwrite', s => s.put(book));
+      const lib = store.get('library', []).filter(b => b.id !== book.id);
+      lib.unshift({ id: book.id, title: book.title, author: book.author, words: n });
+      store.set('library', lib);
+      toast(`Added “${book.title}”`);
+    } catch (err) {
+      console.error(err);
+      toast(`${f.name}: ${err.message}`);
+    }
+  }
+  renderLibrary();
+};
+
+async function openBook(id) {
+  if (S.book?.id !== id) {
+    const raw = await idb('readonly', s => s.get(id));
+    if (!raw) return toast('That book is no longer on this device.');
+    S.book = prepare(raw);
+  }
+  S.pos = Math.min(store.get('pos.' + id, 0), S.book.words.length - 1);
+  renderToc();
+  go('toc');
+}
+
+function renderToc() {
+  const B = S.book, ci = chapterAt(S.pos);
+  $('#tocTitle').textContent = B.title;
+  $('#tocAuthor').textContent = B.author;
+  $('#continueBtn').textContent = S.pos > 0 ? `Continue · ${B.bounds[ci].title}` : 'Start reading';
+  const ul = $('#chapterList');
+  ul.innerHTML = '';
+  for (const c of B.chapters) {
+    const li = document.createElement('li');
+    li.className = 'row chap-row' + (c === B.bounds[ci] ? ' current' : '');
+    li.style.paddingLeft = 16 + c.depth * 16 + 'px';
+    li.textContent = c.title;
+    li.onclick = () => openPlayer(c.w);
+    ul.append(li);
+  }
+}
+$('#continueBtn').onclick = () => openPlayer(S.pos);
+$('#removeBtn').onclick = async () => {
+  if (!confirm(`Remove “${S.book.title}” from this device?`)) return;
+  const id = S.book.id;
+  await idb('readwrite', s => s.delete(id));
+  store.set('library', store.get('library', []).filter(b => b.id !== id));
+  store.del('pos.' + id);
+  S.book = null;
+  renderLibrary();
+  go('library');
+};
+for (const b of document.querySelectorAll('[data-go]')) b.onclick = () => { renderLibrary(); go(b.dataset.go); };
+
+/* ---------- player ---------- */
+function openPlayer(w) {
+  S.pos = w; S.ci = -1;
+  $('#bookTitle').textContent = S.book.title;
+  go('player');
+  savePos();
+  showWord(S.pos);
+  renderContext();
+}
+$('#playerBack').onclick = () => { pause(); renderToc(); go('toc'); };
+
+function showWord(i) {
+  const [l, c, r] = splitWord(S.book.words[i]);
+  wl.textContent = l; wc.textContent = c; wr.textContent = r;
+  if (S.playing) fit();
+  updateProgress();
+}
+// Shrinks a long word just enough that it fits on either side of the focus letter.
+function fit() {
+  wordEl.style.fontSize = '';
+  const over = Math.max(wl.scrollWidth / (wl.clientWidth || 1), wr.scrollWidth / (wr.clientWidth || 1));
+  if (over > 1) wordEl.style.fontSize = parseFloat(getComputedStyle(wordEl).fontSize) / over * 0.96 + 'px';
+}
+
+function updateProgress() {
+  const B = S.book, i = S.pos, ci = chapterAt(i);
+  const cs = B.bounds[ci].w, ce = ci + 1 < B.bounds.length ? B.bounds[ci + 1].w : B.words.length;
+  if (ci !== S.ci) {
+    S.ci = ci;
+    $('#chapTitle').textContent = B.bounds[ci].title;
+    scrub.min = cs; scrub.max = Math.max(cs, ce - 1);
+  }
+  scrub.value = i;
+  scrub.style.setProperty('--p', (i - cs) / Math.max(1, ce - 1 - cs) * 100 + '%');
+  const secPerBeat = 60 / S.wpm;
+  $('#tElapsed').textContent = fmt((B.prefix[i] - B.prefix[cs]) * secPerBeat);
+  $('#tLeft').textContent = '-' + fmt((B.prefix[ce] - B.prefix[i]) * secPerBeat);
+}
+
+function renderContext() {
+  const B = S.book, pi = B.paraOf[S.pos], box = $('#context');
+  box.innerHTML = '';
+  for (let p = Math.max(0, pi - 1); p <= Math.min(B.paragraphs.length - 1, pi + 1); p++) {
+    const el = document.createElement('p');
+    if (p !== pi) el.className = 'dim';
+    const end = p + 1 < B.paraStart.length ? B.paraStart[p + 1] : B.words.length;
+    for (let i = B.paraStart[p]; i < end; i++) {
+      const sp = document.createElement('span');
+      sp.textContent = B.words[i];
+      sp.dataset.i = i;
+      if (i === S.pos) sp.className = 'cur';
+      el.append(sp, ' ');
+    }
+    box.append(el);
+  }
+  const cur = box.querySelector('.cur');
+  if (cur) box.scrollTop = cur.offsetTop - box.clientHeight / 2 + cur.offsetHeight / 2;
+}
+
+function step() {
+  if (!S.playing) return;
+  showWord(S.pos);
+  let m = S.book.mult[S.pos];
+  if (S.ramp > 0) { m *= 1 + 0.12 * S.ramp; S.ramp--; }   // ease in after pressing play
+  S.timer = setTimeout(() => {
+    if (S.pos >= S.book.words.length - 1) return pause();
+    S.pos++;
+    if (S.pos % 25 === 0) savePos();
+    step();
+  }, 60000 / S.wpm * m);
+}
+function play() {
+  if (S.playing) return;
+  S.playing = true; S.ramp = 5;
+  $('#player').classList.add('playing');
+  wake(true);
+  step();
+}
+function pause() {
+  if (!S.playing) return;
+  S.playing = false;
+  clearTimeout(S.timer);
+  savePos();
+  $('#player').classList.remove('playing');
+  wake(false);
+  renderContext();
+}
+function jump(i) {
+  S.pos = Math.max(0, Math.min(S.book.words.length - 1, i));
+  savePos();
+  if (S.playing) { clearTimeout(S.timer); S.ramp = 3; step(); }
+  else { showWord(S.pos); renderContext(); }
+}
+function sentenceStart(i) { let j = i - 1; while (j >= 0 && !S.book.ends[j]) j--; return j + 1; }
+
+$('#playBtn').onclick = () => S.playing ? pause() : play();
+$('#back10').onclick = () => jump(S.pos - 10);
+$('#fwd10').onclick = () => jump(S.pos + 10);
+$('#prevSent').onclick = () => {
+  let s = sentenceStart(S.pos);
+  if (S.pos - s < 2 && s > 0) s = sentenceStart(s - 1);   // already at a sentence start → go to the previous one
+  jump(s);
+};
+$('#nextSent').onclick = () => {
+  let j = S.pos;
+  while (j < S.book.words.length - 1 && !S.book.ends[j]) j++;
+  jump(j + 1);
+};
+$('#stage').onclick = e => {
+  if (S.playing) return pause();
+  const i = e.target.dataset?.i;
+  if (i != null) jump(+i); else play();
+};
+scrub.oninput = () => jump(+scrub.value);
+
+function setWpm(v) {
+  S.wpm = Math.max(MIN_WPM, Math.min(MAX_WPM, v));
+  store.set('wpm', S.wpm);
+  $('#wpm').textContent = S.wpm;
+  if (S.book) updateProgress();
+}
+$('#slower').onclick = () => setWpm(S.wpm - STEP_WPM);
+$('#faster').onclick = () => setWpm(S.wpm + STEP_WPM);
+setWpm(S.wpm);
+
+document.addEventListener('keydown', e => {
+  if ($('#player').hidden) return;
+  const k = { ' ': '#playBtn', ArrowLeft: '#prevSent', ArrowRight: '#nextSent', ArrowUp: '#faster', ArrowDown: '#slower' }[e.key];
+  if (k) { e.preventDefault(); $(k).click(); }
+});
+
+// Keep the screen awake while reading; pause if the app is put in the background.
+async function wake(on) {
+  try {
+    if (on && 'wakeLock' in navigator) S.lock = await navigator.wakeLock.request('screen');
+    else if (!on && S.lock) { await S.lock.release(); S.lock = null; }
+  } catch {}
+}
+document.addEventListener('visibilitychange', () => { if (document.hidden) pause(); });
+
+/* ---------- start ---------- */
+renderLibrary();
+navigator.storage?.persist?.();
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
+</script>
+</body>
+</html>
